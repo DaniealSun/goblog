@@ -1,0 +1,8 @@
+web/admin/node_modules
+web/admin/dist
+.idea/
+*.rdb
+*.py___jb_old___
+*.log
+.vscode
+.DS_Store

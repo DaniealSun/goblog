@@ -1,0 +1,142 @@
+package model
+
+import (
+	"encoding/base64"
+	"fmt"
+	"goblog/utils/errmsg"
+
+	"golang.org/x/crypto/scrypt"
+	"gorm.io/gorm"
+)
+
+type User struct {
+	gorm.Model
+	Username string `gorm:"type: varchar(20);not null;comment:用户" json:"username" validate:"required,min=4,max=12" label:"用户名"`
+	Password string `gorm:"type: varchar(20);not null;comment:密码" json:"password" validate:"required,min=6,max=20" label:"密码"`
+	Role     int    `gorm:"type: int; DEFAULT:2;comment:角色" json:"role" validate:"required,gte=2" label:"角色码"`
+}
+
+// 查询用户是否存在
+func CheckUser(name string) int {
+	var user User
+	db.Select("id").Where("username = ?", name).First(&user)
+	if user.ID > 0 {
+		return errmsg.ERROR_USERNAME_USED // 用户名已存在，返回1001
+	}
+	return errmsg.SUCCSE
+}
+
+// 更新查询
+func CheckUpUser(id int, username string) int {
+	var user User
+	db.Select("id, username").Where("username = ?", username).First(&user)
+	if user.ID == uint(id) {
+		return errmsg.SUCCSE
+	}
+	if user.ID > 0 {
+		return errmsg.ERROR_USERNAME_USED // 用户名已存在，返回1001
+	}
+	return errmsg.SUCCSE
+}
+
+// 新增用户
+func CreateUser(data *User) int {
+	data.Password = ScrypPw(data.Password)
+	err := db.Create(&data).Error
+	if err != nil {
+		return errmsg.ERROR
+	}
+	return errmsg.SUCCSE
+}
+
+// 查询单个用户
+func GetUser(id int) (User, int) {
+	var user User
+	err = db.Where("ID = ?", id).First(&user).Error
+	if err != nil {
+		return user, errmsg.ERROR
+	}
+	return user, errmsg.SUCCSE
+}
+
+// 查询用户列表
+func GetUsers(username string, pageSize int, pageNum int) ([]User, int64) {
+	var user User
+	var users []User
+	var total int64
+	// 分页显示
+	db.Model(&user).Count(&total)
+
+	if username == "" {
+		err = db.Limit(pageSize).Offset((pageNum - 1) * pageSize).Find(&users).Error
+	}
+	err = db.Where("username LIKE ?", username+"%").Limit(pageSize).Offset((pageNum - 1) * pageSize).Find(&users).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return nil, 0
+	}
+	return users, total
+}
+
+// 编辑用户
+func EditUser(id int, data *User) int {
+	var user User
+	var maps = make(map[string]interface{})
+	maps["username"] = data.Username
+	maps["role"] = data.Role
+	err := db.Model(&user).Where("id = ?", id).Updates(maps).Error
+	if err != nil {
+		return errmsg.ERROR
+	}
+	return errmsg.SUCCSE
+}
+
+// 重置密码
+func RedoPass(id int, data *User) int {
+	data.Password = ScrypPw(data.Password)
+	err := db.Select("password").Where("id = ?", id).Updates(&data).Error
+	if err != nil {
+		return errmsg.ERROR
+	}
+	return errmsg.SUCCSE
+}
+
+// 删除用户
+func DeleteUser(id int) int {
+	var user User
+	err := db.Where("id = ?", id).Delete(&user).Error
+	if err != nil {
+		return errmsg.ERROR
+	}
+	return errmsg.SUCCSE
+}
+
+// 密码加密
+func ScrypPw(password string) string {
+	const KeyLen = 10
+	salt := []byte{12, 32, 4, 6, 66, 22, 33, 12}
+
+	HashPw, err := scrypt.Key([]byte(password), salt, 16384, 8, 1, KeyLen)
+	if err != nil {
+		fmt.Println("加密失败:", err)
+	}
+	fpw := base64.StdEncoding.EncodeToString(HashPw)
+	return fpw
+}
+
+// 登录验证
+func CheckLogin(username string, password string) int {
+	var user User
+	db.Where("username = ?", username).First(&user)
+
+	if user.ID == 0 {
+		return errmsg.ERROR_USER_NOT_EXIST
+	}
+	if ScrypPw(password) != user.Password {
+		return errmsg.ERROR_PASSWORD_WRONG
+	}
+	if user.Role > 2 {
+		return errmsg.ERROR_USER_NO_PRIVILEGE
+	}
+
+	return errmsg.SUCCSE
+}
